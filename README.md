@@ -18,8 +18,8 @@ To get started with this project, you'll need to have Python 3.x installed on yo
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/yourusername/qtwebengine-browser.git
-   cd qtwebengine-browser
+   git clone https://github.com/BorgorNinja/Borgor-Browser.git
+   cd Borgor-Browser
    ```
 
 2. **Set Up a Virtual Environment** (recommended)
