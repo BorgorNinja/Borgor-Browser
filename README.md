@@ -1,5 +1,5 @@
 
-# Enhanced QTWebEngine Browser
+# BB Browser
 
 An enhanced web browser application built using PyQt5 and PyQtWebEngine. This browser supports multiple tabs, bookmarks, and has a progress bar to indicate page loading status.
 
