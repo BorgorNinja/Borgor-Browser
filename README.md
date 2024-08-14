@@ -1,4 +1,5 @@
 ![image](https://github.com/user-attachments/assets/d0bdcfd9-264d-4644-b3ab-04b8d9a16fac)
+![image](https://github.com/user-attachments/assets/570c0634-7903-4425-b485-0dc196160bab)
 
 # BB Browser
 
