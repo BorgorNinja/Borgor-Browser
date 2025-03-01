@@ -47,6 +47,7 @@ class Browser(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
+        self.tabs.currentChanged.connect(self.update_url_from_tab)
         layout.addWidget(self.tabs)
 
         # Create the navigation bar
@@ -144,7 +145,7 @@ class Browser(QMainWindow):
 
         # Set the initial URL
         self.add_new_tab()
-        self.navigate_to_url("http://www.google.com")
+        self.navigate_to_url("https://www.google.com")
 
         # Create a signal instance for updating the bookmark menu
         self.update_menu_signal = UpdateBookmarkMenuSignal()
@@ -183,9 +184,9 @@ class Browser(QMainWindow):
             self.fullscreen_btn.setText("Exit Fullscreen")
         self.is_fullscreen = not self.is_fullscreen
 
-    def add_new_tab(self, url="http://www.google.com"):
+    def add_new_tab(self, url="https://www.google.com"):
         if not isinstance(url, str):
-            url = "http://www.google.com"  # Fallback to a default URL if not a string
+            url = "https://www.google.com"  # Fallback to a default URL if not a string
 
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -206,7 +207,7 @@ class Browser(QMainWindow):
         tab.setLayout(layout)
     
         # Add the new tab
-        index = self.tabs.addTab(tab, "New Tab")
+        index = self.tabs.addTab(tab, "")
     
         # Create a custom tab with a close button
         custom_tab = QWidget()
@@ -225,7 +226,7 @@ class Browser(QMainWindow):
         self.tabs.setCurrentIndex(index)
         self.update_address_bar()  # Ensure this method is defined
 
-    def update_address_bar(self):
+    def update_url_from_tab(self):
         current_browser = self.current_browser()
         if current_browser:
             url = current_browser.url().toString()
@@ -248,13 +249,19 @@ class Browser(QMainWindow):
         if url is None:
             url = self.address_bar.text().strip()
         if not url.startswith("http://") and not url.startswith("https://"):
-            url = "http://" + url
+            url = "https://" + url
         if not QUrl(url).isValid():
             QMessageBox.warning(self, "Invalid URL", "The URL you entered is invalid.")
             return
         current_browser = self.current_browser()
         if current_browser:
             current_browser.setUrl(QUrl(url))
+
+    def update_address_bar(self):
+        current_browser = self.current_browser()
+        if current_browser:
+            url = current_browser.url().toString()
+            self.address_bar.setText(url)
 
     def navigate_to_url_from_bar(self):
         self.navigate_to_url()
