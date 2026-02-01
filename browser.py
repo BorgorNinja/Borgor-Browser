@@ -1,18 +1,13 @@
-import sys
 import json
-import concurrent.futures
+import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLineEdit, QAction, 
     QToolBar, QFileDialog, QMessageBox, QPushButton, QProgressBar, QStyleFactory, 
     QLabel, QHBoxLayout, QTabBar, QMenu)
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile
-from PyQt5.QtCore import QUrl, Qt, pyqtSignal, QObject, QEventLoop, QTimer
+from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import QKeySequence
 
-
-# Signal to update the bookmark menu from a background thread
-class UpdateBookmarkMenuSignal(QObject):
-    update_menu = pyqtSignal(list)
 
 class Browser(QMainWindow):
     def __init__(self):
@@ -76,10 +71,10 @@ class Browser(QMainWindow):
         self.nav_bar.addWidget(search_btn)
 
         # Fullscreen button
-        fullscreen_btn = QAction("Fullscreen", self)
-        fullscreen_btn.setStatusTip("Toggle Fullscreen Mode")
-        fullscreen_btn.triggered.connect(self.toggle_fullscreen)
-        self.nav_bar.addAction(fullscreen_btn)
+        self.fullscreen_action = QAction("Fullscreen", self)
+        self.fullscreen_action.setStatusTip("Toggle Fullscreen Mode")
+        self.fullscreen_action.triggered.connect(self.toggle_fullscreen)
+        self.nav_bar.addAction(self.fullscreen_action)
 
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -94,11 +89,6 @@ class Browser(QMainWindow):
 
         # Mode toggle button
         self.mode_toggle_btn = QAction("Switch to Dark Mode", self)
-        self.mode_toggle_btn.setStatusTip("Toggle Dark/Light Mode")
-        self.mode_toggle_btn.triggered.connect(self.toggle_dark_mode)
-        self.nav_bar.addAction(self.mode_toggle_btn)
-
-        # Menu Bar
         self.mode_toggle_btn.setStatusTip("Toggle Dark/Light Mode")
         self.mode_toggle_btn.triggered.connect(self.toggle_dark_mode)
         self.nav_bar.addAction(self.mode_toggle_btn)
@@ -135,13 +125,6 @@ class Browser(QMainWindow):
         self.add_new_tab()
         self.navigate_to_url("https://www.google.com")
 
-        # Create a signal instance for updating the bookmark menu
-        self.update_menu_signal = UpdateBookmarkMenuSignal()
-        self.update_menu_signal.update_menu.connect(self.update_bookmark_menu_from_signal)
-
-        # Create a thread pool executor
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-
     def apply_dark_mode(self):
         dark_mode_qss = """
         /* Dark mode styles */
@@ -166,10 +149,10 @@ class Browser(QMainWindow):
     def toggle_fullscreen(self):
         if self.is_fullscreen:
             self.showNormal()
-            self.fullscreen_btn.setText("Fullscreen")
+            self.fullscreen_action.setText("Fullscreen")
         else:
             self.showFullScreen()
-            self.fullscreen_btn.setText("Exit Fullscreen")
+            self.fullscreen_action.setText("Exit Fullscreen")
         self.is_fullscreen = not self.is_fullscreen
 
     def add_new_tab(self, url="https://www.google.com"):
@@ -202,10 +185,11 @@ class Browser(QMainWindow):
         custom_tab_layout = QHBoxLayout(custom_tab)
         custom_tab_layout.setContentsMargins(0, 0, 0, 0)
         title_label = QLabel("New Tab")
+        title_label.setObjectName("tab-title")
         custom_tab_layout.addWidget(title_label)
         close_button = QPushButton("✕")
         close_button.setMaximumSize(16, 16)
-        close_button.clicked.connect(lambda: self.close_tab(index))
+        close_button.clicked.connect(lambda _, tab=tab: self.close_tab(self.tabs.indexOf(tab)))
         custom_tab_layout.addWidget(close_button)
     
         # Set the custom tab widget
@@ -225,7 +209,7 @@ class Browser(QMainWindow):
         if index != -1:
             custom_tab = self.tabs.tabBar().tabButton(index, QTabBar.RightSide)
             if custom_tab:
-                title_label = custom_tab.findChild(QLabel, "")
+                title_label = custom_tab.findChild(QLabel, "tab-title")
                 if title_label:
                     title_label.setText(title)
 
@@ -287,8 +271,7 @@ class Browser(QMainWindow):
             self.bookmark_menu.addAction(bookmark_action)
 
     def update_bookmark_menu(self):
-        # Offload the bookmark menu update to a background thread
-        self.executor.submit(self.update_bookmark_menu_from_signal, self.bookmarks)
+        self.update_bookmark_menu_from_signal(self.bookmarks)
 
     def navigate_bookmark(self):
         action = self.sender()
@@ -298,26 +281,27 @@ class Browser(QMainWindow):
     def load_bookmarks(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Open Bookmark File", "", "JSON Files (*.json)")
         if file_name:
-            self.executor.submit(self._load_bookmarks_from_file, file_name)
+            self._load_bookmarks_from_file(file_name)
 
     def _load_bookmarks_from_file(self, file_name):
         try:
             with open(file_name, "r") as file:
-                QMetaObject.invokeMethod(self, "critical_error", Qt.QueuedConnection, Q_ARG(str, f"Failed to load bookmarks: {e}"))
-        except:
-            pass
+                self.bookmarks = json.load(file)
+            self.update_bookmark_menu()
+        except Exception as error:
+            self.critical_error(f"Failed to load bookmarks: {error}")
 
     def save_bookmarks(self):
         file_name, _ = QFileDialog.getSaveFileName(self, "Save Bookmark File", "", "JSON Files (*.json)")
         if file_name:
-            self.executor.submit(self._save_bookmarks_to_file, file_name)
+            self._save_bookmarks_to_file(file_name)
 
     def _save_bookmarks_to_file(self, file_name):
         try:
             with open(file_name, "w") as file:
                 json.dump(self.bookmarks, file, indent=4)
-        except Exception as e:
-            QMetaObject.invokeMethod(self, "critical_error", Qt.QueuedConnection, Q_ARG(str, f"Failed to save bookmarks: {e}"))
+        except Exception as error:
+            self.critical_error(f"Failed to save bookmarks: {error}")
 
     def current_browser(self):
         current_index = self.tabs.currentIndex()
