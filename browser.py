@@ -1,357 +1,257 @@
-import sys
 import json
-import concurrent.futures
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLineEdit, QAction, 
-    QToolBar, QFileDialog, QMessageBox, QPushButton, QProgressBar, QStyleFactory, 
-    QLabel, QHBoxLayout, QTabBar, QMenu)
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile
-from PyQt5.QtCore import QUrl, Qt, pyqtSignal, QObject, QEventLoop, QTimer
-from PyQt5.QtGui import QKeySequence
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional
+
+from playwright.sync_api import Page, sync_playwright
+
+DEFAULT_HOME = "https://www.google.com"
+BOOKMARKS_FILE = Path("bookmarks.json")
 
 
-# Signal to update the bookmark menu from a background thread
-class UpdateBookmarkMenuSignal(QObject):
-    update_menu = pyqtSignal(list)
+@dataclass
+class Bookmark:
+    title: str
+    url: str
 
-class Browser(QMainWindow):
-    def __init__(self):
-        super().__init__()
 
-        self.setWindowTitle("Borgor Browser")
-        self.setGeometry(100, 100, 1200, 800)
+class BrowserApp:
+    def __init__(self) -> None:
+        self.bookmarks: List[Bookmark] = []
+        self.pages: List[Page] = []
+        self.active_index: int = 0
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.chromium.launch(headless=False)
+        self.context = self.browser.new_context()
 
-        # Initialize bookmarks list and dark mode state
-        self.bookmarks = []
-        self.is_dark_mode = False
-        self.is_fullscreen = False
+    def start(self, initial_url: str = DEFAULT_HOME) -> None:
+        self.new_tab(initial_url)
+        self.run_command_loop()
 
-        # Create the central widget and layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+    def run_command_loop(self) -> None:
+        print("Borgor Browser (Playwright Edition)")
+        print("Type 'help' for commands. 'quit' to exit.")
+        while True:
+            try:
+                command = input("borgor> ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\nExiting...")
+                break
 
-        # Create the tab widget
-        self.tabs = QTabWidget()
-        self.tabs.setTabsClosable(True)
-        self.tabs.tabCloseRequested.connect(self.close_tab)
-        self.tabs.currentChanged.connect(self.update_url_from_tab)
-        layout.addWidget(self.tabs)
+            if not command:
+                continue
 
-        # Create the navigation bar
-        self.nav_bar = QToolBar("Navigation")
-        self.addToolBar(self.nav_bar)
+            if not self.handle_command(command):
+                break
 
-        # Back and forward buttons
-        back_btn = QAction("Back", self)
-        back_btn.setStatusTip("Back")
-        back_btn.setShortcut(QKeySequence.Back)
-        back_btn.triggered.connect(self.back)
-        self.nav_bar.addAction(back_btn)
+        self.shutdown()
 
-        forward_btn = QAction("Forward", self)
-        forward_btn.setStatusTip("Forward")
-        forward_btn.setShortcut(QKeySequence.Forward)
-        forward_btn.triggered.connect(self.forward)
-        self.nav_bar.addAction(forward_btn)
+    def handle_command(self, command: str) -> bool:
+        parts = command.split()
+        action = parts[0].lower()
+        args = parts[1:]
 
-        reload_btn = QAction("Reload", self)
-        reload_btn.setStatusTip("Reload")
-        reload_btn.setShortcut(QKeySequence.Refresh)
-        reload_btn.triggered.connect(self.reload)
-        self.nav_bar.addAction(reload_btn)
+        handlers = {
+            "help": self.show_help,
+            "open": self.open_url,
+            "newtab": self.new_tab,
+            "tabs": self.list_tabs,
+            "switch": self.switch_tab,
+            "back": self.go_back,
+            "forward": self.go_forward,
+            "reload": self.reload,
+            "bookmark": self.handle_bookmark,
+            "save": self.save_bookmarks,
+            "load": self.load_bookmarks,
+            "quit": self.quit,
+            "exit": self.quit,
+        }
 
-        new_tab_btn = QAction("New Tab", self)
-        new_tab_btn.setStatusTip("New Tab")
-        new_tab_btn.triggered.connect(self.add_new_tab)
-        self.nav_bar.addAction(new_tab_btn)
+        handler = handlers.get(action)
+        if not handler:
+            print(f"Unknown command: {action}. Type 'help' for a list of commands.")
+            return True
 
-        # Address bar and search button
-        self.address_bar = QLineEdit()
-        self.address_bar.returnPressed.connect(self.navigate_to_url_from_bar)
-        self.nav_bar.addWidget(self.address_bar)
+        return handler(args)
 
-        search_btn = QPushButton("Search")
-        search_btn.clicked.connect(self.navigate_to_url_from_bar)
-        self.nav_bar.addWidget(search_btn)
+    def show_help(self, _args: List[str]) -> bool:
+        print(
+            "\nCommands:\n"
+            "  open <url>            Navigate the current tab to a URL\n"
+            "  newtab [url]          Open a new tab (defaults to homepage)\n"
+            "  tabs                  List open tabs\n"
+            "  switch <index>        Switch to a tab by index\n"
+            "  back                  Go back in history\n"
+            "  forward               Go forward in history\n"
+            "  reload                Reload the current tab\n"
+            "  bookmark add          Bookmark the current page\n"
+            "  bookmark list         List bookmarks\n"
+            "  bookmark open <index> Open a bookmarked page in the current tab\n"
+            "  save [file]           Save bookmarks to file (default bookmarks.json)\n"
+            "  load [file]           Load bookmarks from file (default bookmarks.json)\n"
+            "  quit                  Exit the browser\n"
+        )
+        return True
 
-        # Fullscreen button
-        fullscreen_btn = QAction("Fullscreen", self)
-        fullscreen_btn.setStatusTip("Toggle Fullscreen Mode")
-        fullscreen_btn.triggered.connect(self.toggle_fullscreen)
-        self.nav_bar.addAction(fullscreen_btn)
+    def open_url(self, args: List[str]) -> bool:
+        if not args:
+            print("Usage: open <url>")
+            return True
+        url = self.normalize_url(args[0])
+        page = self.current_page()
+        page.goto(url)
+        print(f"Navigated to {url}")
+        return True
 
-        # Progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setMaximumHeight(10)
-        layout.addWidget(self.progress_bar)
+    def new_tab(self, args: Optional[List[str]] = None) -> bool:
+        url = DEFAULT_HOME
+        if args:
+            url = self.normalize_url(args[0])
+        page = self.context.new_page()
+        page.goto(url)
+        self.pages.append(page)
+        self.active_index = len(self.pages) - 1
+        print(f"Opened new tab ({self.active_index}) -> {url}")
+        return True
 
-        # Bookmark actions
-        bookmark_btn = QAction("Bookmark", self)
-        bookmark_btn.setStatusTip("Bookmark This Page")
-        bookmark_btn.triggered.connect(self.add_bookmark)
-        self.nav_bar.addAction(bookmark_btn)
+    def list_tabs(self, _args: List[str]) -> bool:
+        for index, page in enumerate(self.pages):
+            title = page.title() or "(untitled)"
+            active_marker = "*" if index == self.active_index else " "
+            print(f"{active_marker} [{index}] {title} - {page.url}")
+        return True
 
-        # Mode toggle button
-        self.mode_toggle_btn = QAction("Switch to Dark Mode", self)
-        self.mode_toggle_btn.setStatusTip("Toggle Dark/Light Mode")
-        self.mode_toggle_btn.triggered.connect(self.toggle_dark_mode)
-        self.nav_bar.addAction(self.mode_toggle_btn)
-
-        # Menu Bar
-        self.mode_toggle_btn.setStatusTip("Toggle Dark/Light Mode")
-        self.mode_toggle_btn.triggered.connect(self.toggle_dark_mode)
-        self.nav_bar.addAction(self.mode_toggle_btn)
-
-        # Menu Bar
-        self.menu_bar = self.menuBar()
-        file_menu = self.menu_bar.addMenu("File")
-
-        # Load bookmarks from file
-        load_action = QAction("Load Bookmarks", self)
-        load_action.setStatusTip("Load bookmarks from file")
-        load_action.triggered.connect(self.load_bookmarks)
-        file_menu.addAction(load_action)
-
-        # Save bookmarks to file
-        save_action = QAction("Save Bookmarks", self)
-        save_action.setStatusTip("Save bookmarks to file")
-        save_action.triggered.connect(self.save_bookmarks)
-        file_menu.addAction(save_action)
-
-        # Exit application
-        exit_action = QAction("Exit", self)
-        exit_action.setShortcut(QKeySequence.Quit)
-        exit_action.setStatusTip("Exit application")
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-
-        # Bookmarks menu
-        self.bookmark_menu = QMenu("Bookmarks", self)
-        self.menu_bar.addMenu(self.bookmark_menu)
-        self.bookmark_menu.aboutToShow.connect(self.update_bookmark_menu)
-
-        # Set the initial URL
-        self.add_new_tab()
-        self.navigate_to_url("https://www.google.com")
-
-        # Create a signal instance for updating the bookmark menu
-        self.update_menu_signal = UpdateBookmarkMenuSignal()
-        self.update_menu_signal.update_menu.connect(self.update_bookmark_menu_from_signal)
-
-        # Create a thread pool executor
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-
-    def apply_dark_mode(self):
-        dark_mode_qss = """
-        /* Dark mode styles */
-        """
-        self.setStyleSheet(dark_mode_qss)
-
-    def apply_light_mode(self):
-        light_mode_qss = """
-        /* Light mode styles */
-        """
-        self.setStyleSheet(light_mode_qss)
-
-    def toggle_dark_mode(self):
-        if self.is_dark_mode:
-            self.apply_light_mode()
-            self.mode_toggle_btn.setText("Switch to Dark Mode")
-        else:
-            self.apply_dark_mode()
-            self.mode_toggle_btn.setText("Switch to Light Mode")
-        self.is_dark_mode = not self.is_dark_mode
-
-    def toggle_fullscreen(self):
-        if self.is_fullscreen:
-            self.showNormal()
-            self.fullscreen_btn.setText("Fullscreen")
-        else:
-            self.showFullScreen()
-            self.fullscreen_btn.setText("Exit Fullscreen")
-        self.is_fullscreen = not self.is_fullscreen
-
-    def add_new_tab(self, url="https://www.google.com"):
-        if not isinstance(url, str):
-            url = "https://www.google.com"  # Fallback to a default URL if not a string
-
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-    
-        # Initialize the browser
-        browser = QWebEngineView()
-    
-        # Set the URL
-        browser.setUrl(QUrl.fromUserInput(url))
-
-        # Connect signals
-        browser.titleChanged.connect(lambda title: self.update_tab_title(tab, title))
-        browser.loadStarted.connect(self.on_load_started)
-        browser.loadProgress.connect(self.on_load_progress)
-        browser.loadFinished.connect(self.on_load_finished)
-    
-        layout.addWidget(browser)
-        tab.setLayout(layout)
-    
-        # Add the new tab
-        index = self.tabs.addTab(tab, "")
-    
-        # Create a custom tab with a close button
-        custom_tab = QWidget()
-        custom_tab_layout = QHBoxLayout(custom_tab)
-        custom_tab_layout.setContentsMargins(0, 0, 0, 0)
-        title_label = QLabel("New Tab")
-        custom_tab_layout.addWidget(title_label)
-        close_button = QPushButton("✕")
-        close_button.setMaximumSize(16, 16)
-        close_button.clicked.connect(lambda: self.close_tab(index))
-        custom_tab_layout.addWidget(close_button)
-    
-        # Set the custom tab widget
-        self.tabs.tabBar().setTabButton(index, QTabBar.RightSide, custom_tab)
-    
-        self.tabs.setCurrentIndex(index)
-        self.update_address_bar()  # Ensure this method is defined
-
-    def update_url_from_tab(self):
-        current_browser = self.current_browser()
-        if current_browser:
-            url = current_browser.url().toString()
-            self.address_bar.setText(url)
-
-    def update_tab_title(self, tab, title):
-        index = self.tabs.indexOf(tab)
-        if index != -1:
-            custom_tab = self.tabs.tabBar().tabButton(index, QTabBar.RightSide)
-            if custom_tab:
-                title_label = custom_tab.findChild(QLabel, "")
-                if title_label:
-                    title_label.setText(title)
-
-    def close_tab(self, index):
-        if self.tabs.count() > 1:
-            self.tabs.removeTab(index)
-
-    def navigate_to_url(self, url=None):
-        if url is None:
-            url = self.address_bar.text().strip()
-        if not url.startswith("http://") and not url.startswith("https://"):
-            url = "https://" + url
-        if not QUrl(url).isValid():
-            QMessageBox.warning(self, "Invalid URL", "The URL you entered is invalid.")
-            return
-        current_browser = self.current_browser()
-        if current_browser:
-            current_browser.setUrl(QUrl(url))
-
-    def update_address_bar(self):
-        current_browser = self.current_browser()
-        if current_browser:
-            url = current_browser.url().toString()
-            self.address_bar.setText(url)
-
-    def navigate_to_url_from_bar(self):
-        self.navigate_to_url()
-
-    def back(self):
-        current_browser = self.current_browser()
-        if current_browser:
-            current_browser.back()
-
-    def forward(self):
-        current_browser = self.current_browser()
-        if current_browser:
-            current_browser.forward()
-
-    def reload(self):
-        current_browser = self.current_browser()
-        if current_browser:
-            current_browser.reload()
-
-    def add_bookmark(self):
-        current_browser = self.current_browser()
-        if current_browser:
-            url = current_browser.url().toString()
-            title = current_browser.title()
-            if (url, title) not in self.bookmarks:
-                self.bookmarks.append((url, title))
-                self.update_bookmark_menu()
-
-    def update_bookmark_menu_from_signal(self, bookmarks):
-        self.bookmark_menu.clear()
-        for url, title in bookmarks:
-            bookmark_action = QAction(title, self)
-            bookmark_action.setData(url)
-            bookmark_action.triggered.connect(self.navigate_bookmark)
-            self.bookmark_menu.addAction(bookmark_action)
-
-    def update_bookmark_menu(self):
-        # Offload the bookmark menu update to a background thread
-        self.executor.submit(self.update_bookmark_menu_from_signal, self.bookmarks)
-
-    def navigate_bookmark(self):
-        action = self.sender()
-        url = action.data()
-        self.navigate_to_url(url)
-
-    def load_bookmarks(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open Bookmark File", "", "JSON Files (*.json)")
-        if file_name:
-            self.executor.submit(self._load_bookmarks_from_file, file_name)
-
-    def _load_bookmarks_from_file(self, file_name):
+    def switch_tab(self, args: List[str]) -> bool:
+        if not args:
+            print("Usage: switch <index>")
+            return True
         try:
-            with open(file_name, "r") as file:
-                QMetaObject.invokeMethod(self, "critical_error", Qt.QueuedConnection, Q_ARG(str, f"Failed to load bookmarks: {e}"))
-        except:
-            pass
+            index = int(args[0])
+        except ValueError:
+            print("Tab index must be a number.")
+            return True
+        if not (0 <= index < len(self.pages)):
+            print("Tab index out of range.")
+            return True
+        self.active_index = index
+        page = self.current_page()
+        page.bring_to_front()
+        print(f"Switched to tab {index}: {page.url}")
+        return True
 
-    def save_bookmarks(self):
-        file_name, _ = QFileDialog.getSaveFileName(self, "Save Bookmark File", "", "JSON Files (*.json)")
-        if file_name:
-            self.executor.submit(self._save_bookmarks_to_file, file_name)
+    def go_back(self, _args: List[str]) -> bool:
+        self.current_page().go_back()
+        return True
 
-    def _save_bookmarks_to_file(self, file_name):
+    def go_forward(self, _args: List[str]) -> bool:
+        self.current_page().go_forward()
+        return True
+
+    def reload(self, _args: List[str]) -> bool:
+        self.current_page().reload()
+        return True
+
+    def handle_bookmark(self, args: List[str]) -> bool:
+        if not args:
+            print("Usage: bookmark <add|list|open>")
+            return True
+
+        action = args[0].lower()
+        if action == "add":
+            return self.add_bookmark()
+        if action == "list":
+            return self.list_bookmarks()
+        if action == "open":
+            return self.open_bookmark(args[1:])
+
+        print("Unknown bookmark action. Use add, list, or open.")
+        return True
+
+    def add_bookmark(self) -> bool:
+        page = self.current_page()
+        title = page.title() or page.url
+        bookmark = Bookmark(title=title, url=page.url)
+        if bookmark in self.bookmarks:
+            print("Bookmark already exists.")
+            return True
+        self.bookmarks.append(bookmark)
+        print(f"Bookmarked {title}")
+        return True
+
+    def list_bookmarks(self) -> bool:
+        if not self.bookmarks:
+            print("No bookmarks saved.")
+            return True
+        for index, bookmark in enumerate(self.bookmarks):
+            print(f"[{index}] {bookmark.title} - {bookmark.url}")
+        return True
+
+    def open_bookmark(self, args: List[str]) -> bool:
+        if not args:
+            print("Usage: bookmark open <index>")
+            return True
         try:
-            with open(file_name, "w") as file:
-                json.dump(self.bookmarks, file, indent=4)
-        except Exception as e:
-            QMetaObject.invokeMethod(self, "critical_error", Qt.QueuedConnection, Q_ARG(str, f"Failed to save bookmarks: {e}"))
+            index = int(args[0])
+        except ValueError:
+            print("Bookmark index must be a number.")
+            return True
+        if not (0 <= index < len(self.bookmarks)):
+            print("Bookmark index out of range.")
+            return True
+        url = self.bookmarks[index].url
+        self.current_page().goto(url)
+        print(f"Opened bookmark {index} -> {url}")
+        return True
 
-    def current_browser(self):
-        current_index = self.tabs.currentIndex()
-        if current_index != -1:
-            return self.tabs.widget(current_index).findChild(QWebEngineView, "")
-        return None
+    def save_bookmarks(self, args: List[str]) -> bool:
+        file_path = Path(args[0]) if args else BOOKMARKS_FILE
+        data = [bookmark.__dict__ for bookmark in self.bookmarks]
+        file_path.write_text(json.dumps(data, indent=2))
+        print(f"Saved {len(self.bookmarks)} bookmarks to {file_path}")
+        return True
 
-    def on_load_started(self):
-        self.progress_bar.setValue(0)
-        self.progress_bar.show()
+    def load_bookmarks(self, args: List[str]) -> bool:
+        file_path = Path(args[0]) if args else BOOKMARKS_FILE
+        if not file_path.exists():
+            print(f"Bookmark file not found: {file_path}")
+            return True
+        data = json.loads(file_path.read_text())
+        self.bookmarks = [Bookmark(**entry) for entry in data]
+        print(f"Loaded {len(self.bookmarks)} bookmarks from {file_path}")
+        return True
 
-    def on_load_progress(self, progress):
-        self.progress_bar.setValue(progress)
+    def quit(self, _args: List[str]) -> bool:
+        return False
 
-    def on_load_finished(self, success):
-        if success:
-            self.progress_bar.setValue(100)
-        else:
-            self.progress_bar.setValue(0)
-        # Hide progress bar after loading is finished
-        self.progress_bar.hide()
+    def current_page(self) -> Page:
+        if not self.pages:
+            self.new_tab([DEFAULT_HOME])
+        return self.pages[self.active_index]
 
-    def critical_error(self, message):
-        QMessageBox.critical(self, "Error", message)
+    @staticmethod
+    def normalize_url(url: str) -> str:
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        return f"https://{url}"
+
+    def shutdown(self) -> None:
+        for page in self.pages:
+            if not page.is_closed():
+                page.close()
+        self.context.close()
+        self.browser.close()
+        self.playwright.stop()
+
+
+def main() -> None:
+    app = BrowserApp()
+    app.start(DEFAULT_HOME)
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    
-    profile = QWebEngineProfile.defaultProfile()
-    profile.setHttpCacheType(QWebEngineProfile.MemoryHttpCache)
-    profile.setHttpCacheMaximumSize(100*1024*1024) # 100 MB of cache
-
-    app.setStyle(QStyleFactory.create('Fusion'))  # Ensure consistent look
-    browser = Browser()
-    browser.show()
-    sys.exit(app.exec_())
+    try:
+        main()
+    except Exception as exc:
+        print(f"Fatal error: {exc}", file=sys.stderr)
+        sys.exit(1)
