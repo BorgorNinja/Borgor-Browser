@@ -32,6 +32,34 @@ A lightweight command-line browser controller built on top of **Playwright Chrom
    playwright install chromium
    ```
 
+### Optional: Build PyQtWebEngine with Proprietary Codecs
+
+If you need proprietary codecs (for example, to enable additional media formats in the Reddit player or improve fullscreen media support), build PyQtWebEngine against a custom Qt build that enables proprietary codecs.
+
+> These scripts are heavy: they compile QtWebEngine and require significant disk space.
+
+#### Linux
+
+```bash
+./scripts/install_linux.sh
+```
+
+#### Windows (PowerShell)
+
+```powershell
+./scripts/install_windows.ps1
+```
+
+> Windows requires Visual Studio Build Tools and `jom` on PATH.
+
+The scripts will:
+
+1. Clone Qt 5.15.2 and build it with `-webengine-proprietary-codecs`.
+2. Clone PyQt5 and PyQtWebEngine (git mirrors).
+3. Build PyQt5 + PyQtWebEngine against the custom Qt build in a local virtual environment.
+
+If you already have a Qt build that enables proprietary codecs, update the script to point at your Qt install path.
+
 ## Usage
 
 Launch the browser controller:
