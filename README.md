@@ -1,22 +1,15 @@
-![image](https://github.com/user-attachments/assets/e5092806-0567-4b4d-93c4-70fb4d1432b0)
+# BB Browser (Playwright Edition)
 
-![image](https://github.com/user-attachments/assets/570c0634-7903-4425-b485-0dc196160bab)
-
-# BB Browser
-
-An enhanced web browser application built using PyQt5 and PyQtWebEngine. This browser supports multiple tabs, bookmarks, and has a progress bar to indicate page loading status.
+A lightweight command-line browser controller built on top of **Playwright Chromium**. It opens real Chromium windows and lets you manage tabs, navigation, and bookmarks from a simple terminal prompt.
 
 ## Features
 
-- **Multiple Tabs**: Open and manage multiple web pages in separate tabs.
-- **Bookmarks**: Add, view, and manage bookmarks.
-- **Progress Bar**: See the progress of page loading.
-- **Navigation Controls**: Back, forward, reload, and open new tabs.
-- **Search Functionality**: Navigate to URLs directly from the address bar or search button.
+- **Playwright Chromium**: Real browser windows (no PyQtWebEngine).
+- **Multiple Tabs**: Open and switch between tabs.
+- **Bookmarks**: Save, load, and open bookmarked pages.
+- **Navigation Controls**: Back, forward, reload, open URL.
 
 ## Installation
-
-To get started with this project, you'll need to have Python 3.x installed on your system. Follow these steps to set up your environment:
 
 1. **Clone the Repository**
 
@@ -35,7 +28,8 @@ To get started with this project, you'll need to have Python 3.x installed on yo
 3. **Install Dependencies**
 
    ```bash
-   pip install PyQt5 PyQtWebEngine
+   pip install playwright
+   playwright install chromium
    ```
 
 ### Optional: Build PyQtWebEngine with Proprietary Codecs
@@ -68,59 +62,39 @@ If you already have a Qt build that enables proprietary codecs, update the scrip
 
 ## Usage
 
-To run the browser, execute the following command in your terminal or command prompt:
+Launch the browser controller:
 
 ```bash
 python browser.py
 ```
 
-### Features Usage
+You will see a prompt:
 
-- **Open a New Tab**: Click the "New Tab" button in the navigation bar.
-- **Navigate to a URL**: Enter a URL in the address bar and press Enter, or click the "Search" button.
-- **Bookmark a Page**: Click the "Bookmark" button in the navigation bar to add the current page to your bookmarks.
-- **Manage Bookmarks**: Use the "File" menu to load or save bookmarks.
+```
+borgor>
+```
 
-## Contributing
+### Command Reference
 
-Contributions are welcome! If you would like to contribute to this project, please follow these steps:
+- `open <url>` – Navigate the current tab to a URL
+- `newtab [url]` – Open a new tab (defaults to homepage)
+- `tabs` – List open tabs
+- `switch <index>` – Switch to a tab by index
+- `back` – Go back in history
+- `forward` – Go forward in history
+- `reload` – Reload the current tab
+- `bookmark add` – Bookmark the current page
+- `bookmark list` – List bookmarks
+- `bookmark open <index>` – Open a bookmark in the current tab
+- `save [file]` – Save bookmarks (default `bookmarks.json`)
+- `load [file]` – Load bookmarks (default `bookmarks.json`)
+- `quit` – Exit the browser
 
-1. **Fork the Repository**
-2. **Create a New Branch**
+## Notes
 
-   ```bash
-   git checkout -b feature/your-feature
-   ```
-
-3. **Make Your Changes**
-4. **Commit Your Changes**
-
-   ```bash
-   git add .
-   git commit -m "Add new feature"
-   ```
-
-5. **Push to Your Fork**
-
-   ```bash
-   git push origin feature/your-feature
-   ```
-
-6. **Create a Pull Request**
-
-   Go to the original repository on GitHub and create a pull request with your changes.
+- Chromium opens in non-headless mode so you can interact with pages visually.
+- Bookmarks are stored in JSON format for easy editing.
 
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
-## Acknowledgements
-
-- **PyQt5**: The Python bindings for the Qt application framework.
-- **QtWebEngine**: A set of classes for web content in applications.
-
-## Troubleshooting
-
-If you encounter issues running the application, ensure that all dependencies are installed and up-to-date. If `Qt5Core.dll` is missing, make sure to install or update `PyQt5` and `PyQtWebEngine`, and verify that the DLL files are present in your Python environment's `site-packages` directory.
-
-For further assistance, please check the [GitHub Issues](https://github.com/BorgorNinja/Borgor-Browser/issues) page or create a new issue with details about the problem you're facing.
